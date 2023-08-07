@@ -20,19 +20,20 @@ except:
     raise ImportError(msg)
 
 
-def bigquic(data, alpha=1.):
+def bigquic(ys, lam, T, eps, v):
     """Python front-end for BigQuic GLASSO solver."""
     # Normalize data, save STDs
-    data = np.copy(data)
+    data = np.copy(ys.T)
     data -= data.mean(axis=0)
     stds = np.std(data, axis=0).clip(1e-10)
     data /= stds
-    rdata = swap.numpy2ri(data)  # Load data into R space
+    rdata = swap.numpy2rpy(data)  # Load data into R space
 
     # Construct and run the program in R
-    program_string = 'f <- function(r) {out = BigQuic(X=r, lambda=%f, use_ram=TRUE); ' % alpha
+    program_string = 'f <- function(r) {out = BigQuic(X=r, ' + 'lambda={lam}, maxit={T}, epsilon={eps}, use_ram=TRUE, verbose={v}); '.format(lam=lam, T=T, eps=eps, v=v)
     program_string += 'as(out$precision_matrices[[1]], "matrix")}'
-    f = R(program_string)
+    R(program_string)
+    f = R['f']
     prec = np.array(f(rdata))
     prec = 1. / stds * prec / stds[:, np.newaxis]  # Put back the original scaling
     return prec
@@ -54,14 +55,14 @@ def bigquic_cv(x, alphas=[0.2, 0.4, 0.8, 1.6], k=3, verbose=True):
                 pass
     best_alpha = sorted([(-np.mean(v), k) for k, v in cv_dict.iteritems()])[0][1]
     if verbose:
-        print cv_dict
+        print(cv_dict)
         print("best alpha: {}".format(best_alpha))
     return bigquic(x, best_alpha)
 
 if __name__ == '__main__':  # Compare functionality to sklearn
     # Test adapted from http://scikit-learn.org/stable/auto_examples/covariance/plot_sparse_cov.html
     from sklearn.datasets import make_sparse_spd_matrix
-    from sklearn.covariance import GraphLasso, log_likelihood
+    from sklearn.covariance import GraphicalLasso, log_likelihood
     from scipy.linalg import pinvh
     import matplotlib.pyplot as plt
 
@@ -86,7 +87,7 @@ if __name__ == '__main__':  # Compare functionality to sklearn
     X /= X.std(axis=0)
 
     # Fit different methods
-    model = GraphLasso(alpha=alpha)
+    model = GraphicalLasso(alpha=alpha)
     model.fit(X)
     cov_ = model.covariance_
     prec_ = model.precision_
@@ -103,7 +104,7 @@ if __name__ == '__main__':  # Compare functionality to sklearn
 
     # plot the covariances
     covs = [('Empirical', emp_cov), ('BigQUIC', bq_cov),
-            ('GraphLasso', cov_), ('True', cov)]
+            ('GraphicalLasso', cov_), ('True', cov)]
     vmax = cov_.max()
     for i, (name, this_cov) in enumerate(covs):
         plt.subplot(2, 4, i + 1)
@@ -116,7 +117,7 @@ if __name__ == '__main__':  # Compare functionality to sklearn
 
     # plot the precisions
     precs = [('Empirical', pinvh(emp_cov)), ('BigQUIC', bq_prec),
-             ('GraphLasso', prec_), ('True', prec)]
+             ('GraphicalLasso', prec_), ('True', prec)]
     vmax = .9 * prec_.max()
     for i, (name, this_prec) in enumerate(precs):
         ax = plt.subplot(2, 4, i + 5)
